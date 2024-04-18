@@ -144,60 +144,112 @@ class TSPSolver:
 		cities = self._scenario.getCities()
 		ncities = len(cities)
 		start_time = time.time()
-		bssf = self.greedy()
+		bssf = self.greedy()	# Initially run the greedy approach to find the initiall bssf
 		bssf_soln = bssf['soln']
 		bssf_cost = bssf['cost']
-		bssf_path = bssf['path']
-		# Creating our cost matrix
-		cost_matrix = []
-		for city in cities:
+		max_queue_size = 0
+		pruned = 0
+		count = 0
+		solutions = 0
+		
+		cost_matrix_initial = []	# Creating our cost matrix
+		for temp_city in cities:
 			temp_matrix = []
 			for target_city in cities:
-				temp_matrix.append(city.costTo(target_city))
-			cost_matrix.append(temp_matrix)
-		#print(cost_matrix)
-		#print('\r\n')
-		lower_bound = 0
-		lower_bound, cost_matrix = self.findLowerBoundReduceMatrix(lower_bound,cost_matrix)	# gives us our initial lower bound and reduces the cost matrix
+				temp_matrix.append(temp_city.costTo(target_city))
+			cost_matrix_initial.append(temp_matrix)
+		pq = []
+		heapq.heapify(pq)
+		lower_bound = 0		# Finding the initial lower bound
+		lower_bound, cost_matrix = self.findInitialLowerBoundReduceMatrix(lower_bound,cost_matrix_initial)	# gives us our initial lower bound and reduces the cost matrix
 		start_city = cities[0]	# We will always start at the first city in the array
 		visited_cities = [start_city]
-		pq = [(lower_bound, cost_matrix, visited_cities)]
-		heapq.heapify(pq)
-		#print(cost_matrix)
-		#print(lower_bound)
+		heapq.heappush(pq, (lower_bound, cost_matrix_initial, visited_cities))
 		while len(pq) != 0:
 			problem = heapq.heappop(pq)
-			visited_cities = problem[2]
-			current_city = problem[2][-1]
-			#for city in cities:
-			for i in range(len(cities)):
-				if(current_city.costTo(cities[i]) != np.inf and cities[i] not in visited_cities):
+			current_city = problem[2][-1]	# Our current city is always going to be the last element that we added to our visited cities
+			visited_cities_copy = problem[2]
+			current_city_index = cities.index(current_city)
+			for i in range(len(cities)):	# This cycles through all of the available cities
+				visited_cities = visited_cities_copy.copy()
+				if(current_city.costTo(cities[i]) != np.inf and cities[i] not in visited_cities):	# If the cost to get to the next city isnt infinite and hasnt been visited, we visit
 					visited_cities.append(cities[i])
-					for j in range(len(cost_matrix)):
-						cost_matrix[i][j] = np.inf
-						cost_matrix[j][i] = np.inf
-					new_lower_bound,new_cost_matrix = self.findLowerBoundReduceMatrix(lower_bound,cost_matrix)
-					if len(visited_cities) == len(cities):
-						if new_lower_bound < bssf_cost:
-							bssf_cost = new_lower_bound
-							#bssf_path = visited_cities
-							bssf_soln = TSPSolution(visited_cities)
-					if new_lower_bound < bssf_cost:
-						heapq.heappush(pq, (new_lower_bound, new_cost_matrix, visited_cities))
+					count += 1
+					if len(pq) > max_queue_size:	# Updating the max queue size
+						max_queue_size = len(pq)
+					new_lower_bound,new_cost_matrix = self.findLowerBoundReduceMatrix(lower_bound,cost_matrix, current_city_index, i)	# Calculating the updated lower bound and cost matrix
+					if len(visited_cities) == len(cities) and new_lower_bound < bssf_cost:
+						bssf_cost = new_lower_bound
+						bssf_soln = TSPSolution(visited_cities)	# Creating a new solution if we found one and updating our number of solutions
+						solutions += 1
+					elif new_lower_bound <= bssf_cost:
+						heapq.heappush(pq, (new_lower_bound, new_cost_matrix, visited_cities))	# Pushing a new element into the pq
+					else:
+						pruned += 1	# Updates our pruned nodes
+				else:	# If the cost to the city is infinite and it is not in the visited cities, we can prune it
+					pruned += 1
 		end_time = time.time()
-
-		results['cost'] = bssf_cost 
+		
+		results['cost'] = bssf_soln.cost 
 		results['time'] = end_time - start_time
-		results['count'] = 0#count
+		results['count'] = count
 		results['soln'] = bssf_soln
-		results['max'] = None
-		results['total'] = None
-		results['pruned'] = None
-		#results['path'] = bssf_path
+		results['max'] = max_queue_size
+		results['total'] = solutions
+		results['pruned'] = pruned
 		return results
 
 
-	def findLowerBoundReduceMatrix(self, lower_bound, cost_matrix):
+	def findInitialLowerBoundReduceMatrix(self, lower_bound, cost_matrix):
+		for i in range(len(cost_matrix)):
+			lowest_row_cost = np.inf
+			for j in range(len(cost_matrix[i])):
+				if cost_matrix[i][j] < lowest_row_cost:
+					lowest_row_cost = cost_matrix[i][j]	# Finding the lowest cost for each row
+			for j in range(len(cost_matrix[i])):
+				if(cost_matrix[i][j] != np.inf):
+					cost_matrix[i][j] -= lowest_row_cost	# Reducing the cost matrix and updating the lower bound
+			lower_bound += lowest_row_cost
+		for i in range(len(cost_matrix)):
+			lowest_column_cost = np.inf
+			for j in range(len(cost_matrix[i])):
+				if cost_matrix[j][i] < lowest_column_cost:
+					lowest_column_cost = cost_matrix[j][i]	# Finding the lowest column cost
+			for j in range(len(cost_matrix[i])):	# Reducing the columns
+				if(cost_matrix[j][i] != np.inf):
+					cost_matrix[j][i] -= lowest_column_cost	# Updating the cost matrix and updating the lower bound
+			lower_bound+= lowest_column_cost
+		return lower_bound, cost_matrix
+
+	def findLowerBoundReduceMatrix(self, lower_bound, cost_matrix, start_city_index, destination_city_index):
+		lower_bound += cost_matrix[destination_city_index][start_city_index]
+		cost_matrix[start_city_index][destination_city_index] = np.inf	# Source and destination nodes to inf in the cost matrix
+		cost_matrix[destination_city_index][start_city_index] = np.inf
+		for i in range(len(cost_matrix)):	# Updating the cost matrix rows and columns
+			cost_matrix[start_city_index][i] = np.inf
+			cost_matrix[i][destination_city_index] = np.inf
+		for i in range(len(cost_matrix)):
+			lowest_row_cost = np.inf
+			for j in range(len(cost_matrix[i])):
+				if cost_matrix[i][j] < lowest_row_cost:
+					lowest_row_cost = cost_matrix[i][j]	# Finding the lowest cost for each row
+			for j in range(len(cost_matrix[i])):
+				if(cost_matrix[i][j] != np.inf):
+					cost_matrix[i][j] -= lowest_row_cost # Updating the cost matrix
+			lower_bound += lowest_row_cost
+		for i in range(len(cost_matrix)):
+			lowest_column_cost = np.inf
+			for j in range(len(cost_matrix[i])):
+				if cost_matrix[j][i] < lowest_column_cost and cost_matrix[j][i] != np.inf:
+					lowest_column_cost = cost_matrix[j][i]	# Finding the lowest cost for each row
+			for j in range(len(cost_matrix[i])):
+				if(cost_matrix[j][i] != np.inf):
+					cost_matrix[j][i] -= lowest_column_cost	# Updating the cost matrix
+			if lowest_column_cost != np.inf:
+				lower_bound += lowest_column_cost	# Updating the lower bound
+		return lower_bound, cost_matrix
+	'''
+	def findLowerBoundReduceMatrix(self, lower_bound, cost_matrix, isFirstCalculation):
 		lowest_row_cost_list = []
 		for i in range(len(cost_matrix)):
 			lowest_row_cost = np.inf
@@ -205,9 +257,15 @@ class TSPSolver:
 				if cost_matrix[i][j] < lowest_row_cost:
 					lowest_row_cost = cost_matrix[i][j]	# Finding the lowest cost for each row
 			for j in range(len(cost_matrix[i])):
-				cost_matrix[i][j] -= lowest_row_cost
+				if(cost_matrix[i][j] != np.inf):
+					cost_matrix[i][j] -= lowest_row_cost
 			lowest_row_cost_list.append(lowest_row_cost)
-			lower_bound += lowest_row_cost	# Updating the lower bound
+			if lowest_row_cost == np.inf and isFirstCalculation:
+				lower_bound += lowest_row_cost	# Updating the lower bound
+			elif lowest_row_cost == np.inf and isFirstCalculation == False:
+				continue	# If the lowest row cost is infinity and it isnt the first time we are calculating the reduced matrix, we can just continue
+			else:
+				lower_bound += lowest_row_cost	# Updating the lower bound
 		
 		lowest_column_cost_list = []	# Reducing the columns
 		for i in range(len(cost_matrix)):
@@ -216,19 +274,24 @@ class TSPSolver:
 				if cost_matrix[j][i] < lowest_column_cost:
 					lowest_column_cost = cost_matrix[j][i]	# Reducing the rows
 			#print(cost_matrix)
-			lowest_column_cost_list.append(lowest_column_cost)
-			lower_bound += lowest_column_cost	# Updating the lower bound
+			if lowest_column_cost == np.inf and isFirstCalculation:
+				lower_bound += lowest_column_cost	# Updating the lower bound
+			elif lowest_column_cost == np.inf and isFirstCalculation == False:	# If the lowest column cost is infinity and 
+				continue														# it isnt the first time we are calculating the reduced matrix, we can just continue
+			else:
+				lower_bound += lowest_column_cost
 			for j in range(len(cost_matrix[i])):	# Reducing the columns
-				cost_matrix[j][i] -= lowest_column_cost
+				if(cost_matrix[j][i] != np.inf):
+					cost_matrix[j][i] -= lowest_column_cost
 		return lower_bound, cost_matrix
+	'''
 
 
 
 
 
-
-
-	''' <summary>
+	'''
+	 <summary>
 		This is the entry point for the algorithm you'll write for your group project.
 		</summary>
 		<returns>results dictionary for GUI that contains three ints: cost of best solution, 
